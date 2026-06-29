@@ -106,9 +106,16 @@ function Cell({ v, money, isTier }) {
   )
 }
 
-function CompareTable({ rows, firstColLabel }) {
+// 렌탈 표 맨 위에 원문 그대로 고정할 자사(아정당) 행
+const PINNED_RENTAL = [
+  { carrier: '아정당렌탈', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', baseMin: '15,000', promoMin: '25개월~ 6,000원', tierMax: '120만원', baseMax: '20,000', promoMax: '' },
+  { carrier: '아정당렌탈', issuer: '우리', card_name: '아정당 우리카드', fee: '20,000', tierMin: '30만원', baseMin: '10,000', promoMin: '', tierMax: '150만원', baseMax: '15,000', promoMax: '' },
+]
+
+function CompareTable({ rows, firstColLabel, pinned }) {
   const data = withRowspan(rows)
-  if (!data.length)
+  const hasPinned = pinned && pinned.length > 0
+  if (!data.length && !hasPinned)
     return <div className="text-slate-400 text-sm py-8 text-center">표시할 카드가 없습니다.</div>
 
   return (
@@ -129,6 +136,24 @@ function CompareTable({ rows, firstColLabel }) {
           </tr>
         </thead>
         <tbody>
+          {hasPinned && pinned.map((r, i) => (
+            <tr key={'pin' + i} className="bg-amber-100/70 font-medium">
+              {i === 0 && (
+                <td rowSpan={pinned.length} className="border border-slate-200 px-2 py-1 text-center font-semibold bg-amber-200/60 align-middle">
+                  {r.carrier}
+                </td>
+              )}
+              <td className="border border-slate-200 px-2 py-1 text-center whitespace-nowrap">{r.issuer}</td>
+              <td className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap">{r.card_name}</td>
+              <td className="border border-slate-200 px-2 py-1 text-left text-[11px] text-slate-700 leading-tight min-w-[140px]">{r.fee}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right">{r.tierMin}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right">{r.baseMin}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right whitespace-nowrap">{r.promoMin}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right">{r.tierMax}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right">{r.baseMax}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right">{r.promoMax}</td>
+            </tr>
+          ))}
           {data.map((r, i) => (
             <tr key={i} className="even:bg-slate-50/60 hover:bg-amber-50">
               {r._carrierFirst && (
@@ -225,7 +250,7 @@ export default function App() {
       {!loading && !err && (
         <>
           {tab === '통신' && <CompareTable rows={telRows} firstColLabel="통신사" />}
-          {tab === '렌탈' && <CompareTable rows={rentalRows} firstColLabel="가맹점" />}
+          {tab === '렌탈' && <CompareTable rows={rentalRows} firstColLabel="가맹점" pinned={PINNED_RENTAL} />}
         </>
       )}
     </div>
