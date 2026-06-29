@@ -445,7 +445,6 @@ def clean_amount_umobile(s):
 _SKT_DTYPE_OK = ("통신비 할인", "청구 할인")  # 캐시백/결제대금/아이폰 제외
 def parse_skt(html):
     soup=BeautifulSoup(html,"lxml"); out=[]; in_fee=False
-    soup=BeautifulSoup(html,"lxml"); out=[]; in_fee=False
     for el in soup.find_all(["em","div"]):
         cls=el.get("class") or []
         if el.name=="em" and "topTitle" in cls:
@@ -765,14 +764,23 @@ def main():
     print(f"  long {len(longs)}행 / grid {len(grids)}장 → card_long_{today}.csv")
     if errs: print(f"  실패: {errs}")
 
-    # ── 5) Supabase 적재 ────────────────────────────────────
+    # ── 5) Supabase 적재 (오늘 날짜 먼저 삭제 → 재적재: 누적/중복 방지) ──
     su,sk=os.environ.get("SUPABASE_URL"),os.environ.get("SUPABASE_KEY")
     if su and sk and longs:
+        hdr={"apikey":sk,"Authorization":f"Bearer {sk}","Content-Type":"application/json"}
+        # (a) 오늘 날짜 기존 행 삭제 (매일 깨끗한 최신본 유지 → 1000행 컷 재발 방지)
+        try:
+            dresp=requests.delete(f"{su}/rest/v1/card_benefit2?date=eq.{today}",
+                headers={**hdr,"Prefer":"return=minimal"},timeout=30)
+            print("  Supabase DELETE(today):",dresp.status_code,"OK" if dresp.status_code<300 else dresp.text[:200])
+        except Exception as e:
+            print("  Supabase DELETE 실패:",e)
+        # (b) 재적재
         pl=[dict(zip(LONG_HEAD,r)) for r in longs]
         resp=requests.post(f"{su}/rest/v1/card_benefit2",
-            headers={"apikey":sk,"Authorization":f"Bearer {sk}","Content-Type":"application/json","Prefer":"return=minimal"},
+            headers={**hdr,"Prefer":"return=minimal"},
             data=json.dumps(pl,ensure_ascii=False).encode("utf-8"),timeout=30)
-        print("  Supabase:",resp.status_code,"OK" if resp.status_code<300 else resp.text[:200])
+        print("  Supabase INSERT:",resp.status_code,"OK" if resp.status_code<300 else resp.text[:200])
     elif not(su and sk):
         print("  Supabase 미설정 → CSV만 생성")
 
