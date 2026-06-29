@@ -16,14 +16,32 @@ const CFG = {
   RENTAL_CATS: ['렌탈'],
 }
 
-const won = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('ko-KR'))
-const tier = (v) => (v == null || v === '' ? '' : `${Number(v).toLocaleString('ko-KR')}만원`)
+// 콤마·"원"·문자 섞인 값에서 숫자만 추출. 못 뽑으면 null
+const num = (v) => {
+  if (v == null) return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  const digits = String(v).replace(/[^0-9.-]/g, '')
+  if (digits === '' || digits === '-' || digits === '.') return null
+  const n = Number(digits)
+  return Number.isFinite(n) ? n : null
+}
+const won = (v) => {
+  const n = num(v)
+  return n == null ? '' : n.toLocaleString('ko-KR')
+}
+const tier = (v) => {
+  const n = num(v)
+  return n == null ? '' : `${n.toLocaleString('ko-KR')}만원`
+}
+// 공백 무시 그룹 키 (표기 미묘하게 달라 쪼개지는 중복 합침)
+const gkey = (r) =>
+  [r.carrier, r.issuer, r.card_name].map((s) => String(s ?? '').replace(/\s+/g, '')).join('||')
 
 /* long → wide 피벗 (25개월후/혜택기간 제외) */
 function pivot(rows) {
   const groups = new Map()
   for (const r of rows) {
-    const key = `${r.carrier}||${r.issuer}||${r.card_name}`
+    const key = gkey(r)
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(r)
   }
@@ -31,16 +49,16 @@ function pivot(rows) {
   const out = []
   for (const g of groups.values()) {
     const base = g[0]
-    const tiers = g.map((r) => r.spend_tier).filter((v) => v != null).map(Number)
+    const tiers = g.map((r) => num(r.spend_tier)).filter((v) => v != null)
     const minT = tiers.length ? Math.min(...tiers) : null
     const maxT = tiers.length ? Math.max(...tiers) : null
 
     const pick = (t, type) => {
-      const hit = g.find((r) => Number(r.spend_tier) === t && r.type === type)
-      if (hit) return hit.discount
+      const hit = g.find((r) => num(r.spend_tier) === t && r.type === type)
+      if (hit) return num(hit.discount)
       if (type === CFG.TYPE_BASE && CFG.INSTALL_AS_BASE) {
-        const inst = g.find((r) => Number(r.spend_tier) === t && r.type === CFG.TYPE_INSTALL)
-        if (inst) return inst.discount
+        const inst = g.find((r) => num(r.spend_tier) === t && r.type === CFG.TYPE_INSTALL)
+        if (inst) return num(inst.discount)
       }
       return null
     }
@@ -49,7 +67,7 @@ function pivot(rows) {
       carrier: base.carrier,
       issuer: base.issuer,
       card_name: base.card_name,
-      fee: g.find((r) => r.fee != null)?.fee ?? null,
+      fee: g.map((r) => r.fee).find((v) => v != null && v !== '') ?? '', // 원문 그대로
       tierMin: minT,
       baseMin: pick(minT, CFG.TYPE_BASE),
       promoMin: pick(minT, CFG.TYPE_PROMO),
@@ -123,7 +141,7 @@ function CompareTable({ rows, firstColLabel }) {
               )}
               <td className="border border-slate-200 px-2 py-1 text-center whitespace-nowrap">{r.issuer}</td>
               <td className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap">{r.card_name}</td>
-              <Cell v={r.fee} money />
+              <td className="border border-slate-200 px-2 py-1 text-left text-[11px] text-slate-600 leading-tight min-w-[140px]">{r.fee || ''}</td>
               <Cell v={r.tierMin} isTier />
               <Cell v={r.baseMin} money />
               <Cell v={r.promoMin} money />
