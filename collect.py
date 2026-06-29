@@ -610,6 +610,7 @@ def collect_kt():
     for pid in KT_PRODIDS:
         try:
             raw=fetch_json(KT_DETAIL_API+pid)
+            print(f"  [KT-DEBUG] {pid[:8]} len={len(raw)} head={raw[:80]!r}")
             c=parse_kt_detail(raw)
             if c: out.append(c)
         except Exception as e:
