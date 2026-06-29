@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-통신/렌탈 제휴카드 실적별 할인 수집기 (패밀리 A + B)
-- 패밀리 A: partner.*/user/sub5014 (다온홈시스, card_Wrap 표) — 8개
-- 패밀리 B: /shop/card.php 등 (bilrigo, tbl_CardInfo 문장형) — 5개
+통신/렌탈 제휴카드 실적별 할인 수집기 (패밀리 A + B + 통신)
+- 패밀리 A: partner.*/user/sub5014 (card_Wrap 표) — 8개
+- 패밀리 B: /shop/card.php 등 (tbl_CardInfo 문장형) — 5개
+- 통신: SKB / LG헬로비전 / HCN / 딜라이브 / 유모바일 / SKT / 스카이라이프 / LGU+ / KT
 출력: card_long_<date>.csv, card_grid_<date>.csv (+ env 있으면 Supabase 적재)
 실행: python3 collect.py
 """
@@ -205,7 +206,7 @@ _ISSUER = [
     ("loca","롯데"),("tello","롯데"),("티다","롯데"),("롯데","롯데"),
     ("삼성","삼성"),("kb","KB국민"),("국민","KB국민"),
     ("하나","하나"),("우리","우리"),("현대","현대"),
-    ("nh","NH농협"),("농협","NH농협"),
+    ("nh","NH농협"),("농협","NH농협"),("ibk","기업"),
 ]
 def guess_issuer(name):
     n=(name or "").lower()
@@ -226,28 +227,60 @@ def won(s):
     m=re.search(r"([\d,]+)\s*원",s or "")
     return int(m.group(1).replace(",","")) if m else None
 
+def kwon(s):
+    """한글 금액. '1만 5천 원'→15000, '7천 원'→7000, '2만 원'→20000, '20,000원'→20000"""
+    if not s: return None
+    man=re.search(r"(\d+)\s*만", s); chon=re.search(r"(\d+)\s*천", s)
+    v=0
+    if man: v+=int(man.group(1))*10000
+    if chon: v+=int(chon.group(1))*1000
+    if not man and not chon:
+        m=re.search(r"([\d,]+)\s*원", s)
+        if m: v=int(m.group(1).replace(",",""))
+    return v or None
+
 # ════════════════════════════════════════════════════════════
-#  SKB (B world) — div.ht-subbox, self-contained 구간
+#  SKB (B world) — 제휴카드 할인 섹션, 실적별 한글금액
 # ════════════════════════════════════════════════════════════
 def parse_skb(html):
-    soup=BeautifulSoup(html,"lxml"); out=[]
-    for box in soup.select("div.ht-subbox"):
-        t=box.select_one("h3.ht-subbox-tit")
-        name=tclean(t.get_text()) if t else ""
-        if not name: continue
+    """B world 제휴카드 할인. 카드명 + 실적별 금액(한글) 파싱.
+    범위 구간은 기본(low)/프로모션(high)으로 분해."""
+    soup=BeautifulSoup(html,"lxml")
+    lines=[tclean(x) for x in soup.get_text("\n").split("\n") if tclean(x)]
+    try:
+        start=next(i for i,l in enumerate(lines) if l=="제휴카드 할인")
+    except StopIteration:
+        start=0
+    lines=lines[start+1:]
+
+    def is_name(l):
+        return l.endswith("카드") and not any(k in l for k in ("할인","실적","연회비","더보기"))
+
+    blocks=[]; cur=None
+    for l in lines:
+        if is_name(l):
+            if cur: blocks.append(cur)
+            cur={"name":l,"lines":[]}
+        elif cur:
+            cur["lines"].append(l)
+    if cur: blocks.append(cur)
+
+    pat=re.compile(r"월\s*([0-9만천, ]+?원)(?:\s*~\s*([0-9만천, ]+?원))?\s*(?:결제일\s*)?할인\s*\(전월[^)]*?(\d+)\s*만\s*원\s*이상")
+    out=[]
+    for b in blocks:
+        text=" ".join(b["lines"])
         tiers=[]
-        for li in box.select("ul.card-spec-list li"):
-            d1=li.select_one("p.card-spec-desc"); d2=li.select_one("p.card-spec-desc-sm")
-            txt=tclean((d1.get_text() if d1 else "")+" "+(d2.get_text() if d2 else ""))
-            m=re.search(r"(\d+)\s*만원?\s*이상",txt); d=won(txt)
-            if m and d: tiers.append({"spend":int(m.group(1)),"type":"기본","discount":d})
-        fee=""
-        fm=re.search(r"연회비[^\d]*([\d,]+)\s*원",tclean(box.get_text()))
-        if fm: fee=fm.group(1)+"원"
-        a=box.select_one("a[href]")
-        out.append({"card_name":name,"issuer":guess_issuer(name),"carrier":"SKB",
-                    "disc_type":guess_dtype(box.get_text()),"fee":fee,
-                    "apply_url":a["href"] if a else "","tiers":tiers,"note":"" if tiers else "구간없음"})
+        for m in pat.finditer(text):
+            low=kwon(m.group(1)); high=kwon(m.group(2)); spend=int(m.group(3))
+            if low: tiers.append({"spend":spend,"type":"기본","discount":low,"note":""})
+            if high and high!=low:
+                tiers.append({"spend":spend,"type":"프로모션","discount":high,"note":""})
+        if not tiers: continue
+        fm=re.search(r"연회비\s*(.+?)(?:카드 혜택|$)", text)
+        fee=tclean(fm.group(1))[:60] if fm else ""
+        out.append({"card_name":b["name"],"issuer":guess_issuer(b["name"]),"carrier":"SKB",
+                    "disc_type":guess_dtype(text),"category":"통신","fee":fee,
+                    "apply_url":"","tiers":tiers,"note":""})
     return out
 
 # ════════════════════════════════════════════════════════════
@@ -406,35 +439,39 @@ def clean_amount_umobile(s):
     return res
 
 # ════════════════════════════════════════════════════════════
-#  SKT (T world) — div.alliance_card (실적구간 없음, 범위만)
+#  SKT (T world) — 요금할인(청구할인)형만. 범위(low~high)를 기본 2행으로.
 # ════════════════════════════════════════════════════════════
 def parse_skt(html):
-    soup=BeautifulSoup(html,"lxml"); out=[]
-    # 섹션 구분: '라이트할부형' / '요금할인형'
-    section="통신"
-    for el in soup.find_all(["em","div"]):
-        cls=el.get("class") or []
-        if "topTitle" in cls:
-            t=tclean(el.get_text())
-            section="통신-할부형" if "라이트할부" in t else "통신"
-        if "alliance_card" not in cls: continue
-        nm=el.select_one("strong.card_tit")
-        name=tclean(nm.get_text()) if nm else ""
-        if not name: continue
-        price=el.select_one("span.price")
-        rng=tclean(price.get_text()) if price else ""
-        tt=el.select_one("span.tit")
-        dt_label=tclean(tt.get_text()) if tt else ""
-        fee=""
-        fm=re.search(r"연회비[^\d]*([\d,만천원\s]+)", tclean(el.get_text()))
-        if fm: fee=tclean(fm.group(1))[:40]
-        a=el.select_one("a.btnWhite[href], a[href]")
-        out.append({"card_name":name,"issuer":guess_issuer(name),"carrier":"SKT",
-                    "disc_type":guess_dtype(dt_label or el.get_text()),
-                    "category":section,"fee":fee,
-                    "apply_url":a["href"] if a else "",
-                    "tiers":[{"spend":None,"type":"범위","discount":None,"note":rng}],
-                    "note":"범위만(카드사상세필요)","range":rng})
+    """T world 요금할인(청구할인)형만. 범위(low~high)를 기본 2행으로 출력.
+    라이트할부형 / 캐시백 / 결제대금차감 / 아이폰전용은 제외."""
+    soup=BeautifulSoup(html,"lxml")
+    lines=[tclean(x) for x in soup.get_text("\n").split("\n") if tclean(x)]
+    out=[]; infee=False; name=None
+    for i,ln in enumerate(lines):
+        if "요금할인형 카드 안내" in ln: infee=True; continue
+        if "라이트할부형 카드 안내" in ln: infee=False; continue
+        if not infee: continue
+        m=re.search(r"(통신비 할인|청구 할인|캐시백|결제대금 차감|아이폰 전용 할인)\s*월\s*([\d,]+)\s*(?:~|～|∼)?\s*([\d,]+)?\s*원",ln)
+        if m:
+            if m.group(1) not in ("통신비 할인","청구 할인"):
+                name=None; continue   # 요금할인(청구할인)만
+            low=int(m.group(2).replace(",","")); high=int(m.group(3).replace(",","")) if m.group(3) else low
+            nm=name
+            if not nm:
+                for j in range(i-1,max(i-5,-1),-1):
+                    if any(k in lines[j] for k in ("카드","Edition","TELLO")): nm=lines[j]; break
+            fee=""
+            for j in range(i,min(i+8,len(lines))):
+                fm=re.search(r"연회비\s*[:：]?\s*(.+)",lines[j])
+                if fm: fee=tclean(fm.group(1))[:60]; break
+            tiers=[{"spend":None,"type":"기본","discount":low,"note":"범위"}]
+            if high!=low: tiers.append({"spend":None,"type":"기본","discount":high,"note":"범위"})
+            out.append({"card_name":nm,"issuer":guess_issuer(nm),"carrier":"SKT","disc_type":"청구할인",
+                        "category":"통신","fee":fee,"apply_url":"","tiers":tiers,
+                        "note":"범위(T world 요금할인형)"})
+            name=None
+        elif any(k in ln for k in ("카드","Edition","TELLO")) and "할인혜택" not in ln and "제휴혜택" not in ln:
+            name=ln
     return out
 
 # ════════════════════════════════════════════════════════════
@@ -492,8 +529,6 @@ def parse_lgu(jsontext):
 #  KT — savedream 허브 상세 API (card-detail?prodId={uuid})
 #  uuid는 KT_PRODIDS에 등록. 정형표만 자동, 복합/다단표는 격리.
 # ════════════════════════════════════════════════════════════
-# KT 제휴카드 prodId 목록 (자세히보기 → savedream.co.kr/cardfs/{uuid})
-# 카드 추가/변경 시 여기만 갱신하면 됨.
 KT_PRODIDS = [
     "82b3fe07-44ea-4aef-aed9-0d49b54168f7",  # KT Plus 우리카드
     "004cc44c-9ca5-478e-87d1-7c24cb39e9eb",  # KT 36 Plus 우리카드
@@ -580,23 +615,31 @@ def collect_kt():
     return out
 
 # ════════════════════════════════════════════════════════════
-#  스카이라이프 — 신한 탭만 (정적 확보분), 나머지 4탭 보류
+#  스카이라이프 — SPA(__NEXT_DATA__). 자동수집 리스크 커서 하드코딩.
+#  값 출처: 신한=라이브 fetch 확인 / 나머지=수기 확인(2026-06-29).
+#  값 바뀌면 SKYLIFE_CARDS 표만 갱신.
 # ════════════════════════════════════════════════════════════
-def parse_skylife_shinhan(html):
-    """신한 탭 서버렌더분만. 4탭(KB/롯데/하나/BC)은 SPA라 보류."""
-    soup=BeautifulSoup(html,"lxml"); out=[]
-    # 신한 탭 데이터: 알려진 구조 기반(확보분). 라이브 selector는 검증 필요.
-    for area in soup.select("div.card-benefit, div.benefit-card, section.tab-content"):
-        nm=area.find(["strong","h3","p"])
-        name=tclean(nm.get_text()) if nm else ""
-        if "신한" not in name and "신한" not in tclean(area.get_text())[:40]: continue
-        tiers=[]
-        for ln in [tclean(x) for x in area.get_text("\n").split("\n") if tclean(x)]:
-            sm=re.search(r"(\d+)\s*만원\s*이상",ln); d=won(ln)
-            if sm and d: tiers.append({"spend":int(sm.group(1)),"type":"기본","discount":d})
-        if tiers:
-            out.append({"card_name":name or "스카이라이프 신한카드","issuer":"신한","carrier":"스카이라이프",
-                        "disc_type":"청구할인","fee":"","apply_url":"","tiers":tiers,"note":""})
+# (카드명, 카드사, [(전월실적만원, 기본할인, 프로모션할인 or None), ...])
+SKYLIFE_CARDS = [
+    ("스카이라이프 신한카드",       "신한",   [(30, 15000, None), (70, 16000, None), (120, 20000, None)]),
+    ("KT스카이라이프 KB카드",       "KB국민", [(30, 15000, None), (70, 17000, None)]),
+    ("LOCA x special SE",         "롯데",   [(30, 15000, None), (70, 17000, None), (150, 25000, None)]),
+    ("스카이라이프 하나카드",       "하나",   [(30, 13000, None)]),
+    ("KT 마이알뜰폰 BC 바로카드",   "BC바로", [(30, 12000, None), (70, 17000, None)]),
+]
+
+def parse_skylife(html=None):
+    """스카이라이프 5장. SPA라 자동수집 대신 SKYLIFE_CARDS 표를 그대로 출력."""
+    out=[]
+    for name,issuer,tiers in SKYLIFE_CARDS:
+        rows=[]
+        for spend,base,promo in tiers:
+            rows.append({"spend":spend,"type":"기본","discount":base,"note":""})
+            if promo:
+                rows.append({"spend":spend,"type":"프로모션","discount":promo,"note":""})
+        out.append({"card_name":name,"issuer":issuer,"carrier":"스카이라이프",
+                    "disc_type":"청구할인","category":"통신","fee":"","apply_url":"",
+                    "tiers":rows,"note":"수기확인(2026-06-29)"})
     return out
 
 # ════════════════════════════════════════════════════════════
@@ -604,19 +647,19 @@ def parse_skylife_shinhan(html):
 #  mode: "html"=fetch후 HTML파서, "json"=fetch후 JSON파서
 # ════════════════════════════════════════════════════════════
 TEL_JOBS = [
+    ("SKT",          "https://www.tworld.co.kr/poc/html/product/TS3.3.3T.html", parse_skt,           "html"),
     ("SKB",          "https://www.bworld.co.kr/event/page.do?menu_id=B06000000", parse_skb,           "html"),
+    ("스카이라이프",   "https://www.skylife.co.kr/benefit/card?tab=shinhan",       parse_skylife,       "html"),
     ("LG헬로비전",    "https://www.lghellovision.net/benefits/card/cardDiscountList.do", parse_lghello_home, "html"),
     ("HCN",          "https://www.hcn.co.kr/www/event/event3.jsp",               parse_hcn,           "html"),
     ("딜라이브",      "https://www.dlive.kr/front/join/join/DiscountAction.do?method=view", parse_dlive, "html"),
     ("유모바일",      "https://www.uplusumobile.com/product/guide/benefitCopCard", parse_umobile,       "html"),
-    # SKT 제외: T world 페이지는 실적구간 없이 "월 X~Y원" 범위만 노출 →
-    #           카드사 실제 구간값과 불일치하여 수기 영역으로 분리(렌탈 이미지 3사와 동일 처리)
     ("LGU+",         "https://m.lguplus.com/uhdc/fo/prdv/dcntbnft/v1/cprt-card-dcnt-list?billDcntYn=&bnftDcntYn=", parse_lgu, "json"),
-    # 스카이라이프 신한 탭 + KT savedream 허브는 별도 처리(아래 주석)
+    # KT savedream 허브는 main에서 collect_kt()로 별도 처리
 ]
 # ※ 딜라이브 2페이지: 아래 main에서 page2 POST 별도 시도
 # ※ LGU+ JSON URL은 추정 경로 — 라이브에서 404면 네가 F12에서 본 정확한 Request URL로 교체
-# ※ 스카이라이프 4탭, KT savedream 12장, 유모바일 삼성, SKT 카드사상세 = Tier2(보류/후속)
+# ※ SKT=범위만(T world) / 스카이라이프=하드코딩 / 유모바일 삼성=보류
 
 def fetch_json(url):
     r=requests.get(url,headers={**UA,"Accept":"application/json","Referer":"https://m.lguplus.com/"},timeout=20)
