@@ -562,10 +562,13 @@ def parse_kt_detail(jsontext):
     issuer=_issuer_from_url(url)
     soup=BeautifulSoup(d.get("benefitDesc",""),"lxml")
     fee=""
-    fm=re.search(r"연회비[^\n]*?국내전용\s*([\d,]+)\s*원", soup.get_text())
-    if fm: fee=fm.group(1)+"원(국내)"
+    fseg=soup.get_text()
+    if "연회비" in fseg:
+        seg=fseg.split("연회비",1)[-1][:60]   # '연회비' 뒤 일부
+        famt=kwon(seg)                          # '2만 5천원' / '25,000원' 모두 대응
+        if famt: fee=f"{famt:,}원"
     base={"card_name":name,"issuer":issuer,"carrier":"KT","disc_type":"청구할인",
-          "fee":fee,"apply_url":url}
+          "category":"통신","fee":fee,"apply_url":url}
     tbls=soup.select("table")
     if not tbls:
         return {**base,"tiers":[],"note":"표없음(범위만)"}
@@ -662,7 +665,14 @@ TEL_JOBS = [
 # ※ SKT=범위만(T world) / 스카이라이프=하드코딩 / 유모바일 삼성=보류
 
 def fetch_json(url):
-    r=requests.get(url,headers={**UA,"Accept":"application/json","Referer":"https://m.lguplus.com/"},timeout=20)
+    # 도메인별 적절한 Referer/Origin (엉뚱한 Referer면 savedream 등에서 차단됨)
+    if "savedream.co.kr" in url:
+        ref={"Referer":"https://product.kt.com/","Origin":"https://product.kt.com"}
+    elif "lguplus.com" in url:
+        ref={"Referer":"https://m.lguplus.com/"}
+    else:
+        ref={}
+    r=requests.get(url,headers={**UA,"Accept":"application/json, text/plain, */*",**ref},timeout=20)
     r.encoding=r.apparent_encoding or "utf-8"
     return r.text
 
