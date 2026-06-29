@@ -1,0 +1,26 @@
+name: daily-card-scan
+on:
+  schedule:
+    - cron: '0 22 * * *'    # 매일 07:00 KST (UTC 22:00)
+  workflow_dispatch: {}      # 수동 실행 버튼
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install requests beautifulsoup4 lxml
+      - name: collect
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python3 collect.py
+      - name: keep CSV history in repo
+        run: |
+          mkdir -p history && mv card_*_*.csv history/ 2>/dev/null || true
+          git config user.name  "card-scan-bot"
+          git config user.email "bot@local"
+          git add history/ || true
+          git commit -m "card scan $(date +%F)" || echo "no change"
+          git push || echo "push skipped"
