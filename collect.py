@@ -439,39 +439,39 @@ def clean_amount_umobile(s):
     return res
 
 # ════════════════════════════════════════════════════════════
-#  SKT (T world) — 요금할인(청구할인)형만. 범위(low~high)를 기본 2행으로.
+#  SKT (T world) — 요금할인형 섹션 alliance_card. 범위(low~high)→기본 2행.
+#  topTitle(em)로 라이트할부형/요금할인형 섹션 구분, 요금할인형만 수집.
 # ════════════════════════════════════════════════════════════
+_SKT_DTYPE_OK = ("통신비 할인", "청구 할인")  # 캐시백/결제대금/아이폰 제외
 def parse_skt(html):
-    """T world 요금할인(청구할인)형만. 범위(low~high)를 기본 2행으로 출력.
-    라이트할부형 / 캐시백 / 결제대금차감 / 아이폰전용은 제외."""
-    soup=BeautifulSoup(html,"lxml")
-    lines=[tclean(x) for x in soup.get_text("\n").split("\n") if tclean(x)]
-    out=[]; infee=False; name=None
-    for i,ln in enumerate(lines):
-        if "요금할인형 카드 안내" in ln: infee=True; continue
-        if "라이트할부형 카드 안내" in ln: infee=False; continue
-        if not infee: continue
-        m=re.search(r"(통신비 할인|청구 할인|캐시백|결제대금 차감|아이폰 전용 할인)\s*월\s*([\d,]+)\s*(?:~|～|∼)?\s*([\d,]+)?\s*원",ln)
-        if m:
-            if m.group(1) not in ("통신비 할인","청구 할인"):
-                name=None; continue   # 요금할인(청구할인)만
-            low=int(m.group(2).replace(",","")); high=int(m.group(3).replace(",","")) if m.group(3) else low
-            nm=name
-            if not nm:
-                for j in range(i-1,max(i-5,-1),-1):
-                    if any(k in lines[j] for k in ("카드","Edition","TELLO")): nm=lines[j]; break
+    soup=BeautifulSoup(html,"lxml"); out=[]; in_fee=False
+    for el in soup.find_all(["em","div"]):
+        cls=el.get("class") or []
+        if el.name=="em" and "topTitle" in cls:
+            in_fee=("요금할인형" in tclean(el.get_text())); continue
+        if el.name=="div" and "alliance_card" in cls:
+            if not in_fee: continue
+            tit=el.select_one("strong.card_tit")
+            name=tclean(tit.get_text()) if tit else ""
+            if not name: continue
+            le=el.select_one("span.tit"); label=tclean(le.get_text()) if le else ""
+            if label not in _SKT_DTYPE_OK: continue
+            pe=el.select_one("span.price"); price=tclean(pe.get_text()) if pe else ""
+            nums=[int(x.replace(",","")) for x in re.findall(r"([\d,]+)",price)]
+            if not nums: continue
+            low=min(nums); high=max(nums)
             fee=""
-            for j in range(i,min(i+8,len(lines))):
-                fm=re.search(r"연회비\s*[:：]?\s*(.+)",lines[j])
-                if fm: fee=tclean(fm.group(1))[:60]; break
+            for li in el.select("div.discount_list_info li"):
+                t=tclean(li.get_text())
+                if "연회비" in t:
+                    fee=tclean(re.sub(r"^연회비\s*[:：]?\s*","",t))[:60]; break
+            a=el.select_one("div.btn_wrap a[href]")
             tiers=[{"spend":None,"type":"기본","discount":low,"note":"범위"}]
             if high!=low: tiers.append({"spend":None,"type":"기본","discount":high,"note":"범위"})
-            out.append({"card_name":nm,"issuer":guess_issuer(nm),"carrier":"SKT","disc_type":"청구할인",
-                        "category":"통신","fee":fee,"apply_url":"","tiers":tiers,
+            out.append({"card_name":name,"issuer":guess_issuer(name),"carrier":"SKT",
+                        "disc_type":"청구할인","category":"통신","fee":fee,
+                        "apply_url":a["href"] if a else "","tiers":tiers,
                         "note":"범위(T world 요금할인형)"})
-            name=None
-        elif any(k in ln for k in ("카드","Edition","TELLO")) and "할인혜택" not in ln and "제휴혜택" not in ln:
-            name=ln
     return out
 
 # ════════════════════════════════════════════════════════════
