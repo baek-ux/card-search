@@ -69,17 +69,14 @@ function pivot(rows) {
       card_name: base.card_name,
       fee: g.map((r) => r.fee).find((v) => v != null && v !== '') ?? '', // 원문 그대로
       tierMin: minT,
-      baseMin: pick(minT, CFG.TYPE_BASE),
-      promoMin: pick(minT, CFG.TYPE_PROMO),
       tierMax: maxT,
-      baseMax: pick(maxT, CFG.TYPE_BASE),
-      promoMax: pick(maxT, CFG.TYPE_PROMO),
+      // 프로모션 있으면 프로모션, 없으면 기본 (합산 아님)
+      discMin: pick(minT, CFG.TYPE_PROMO) ?? pick(minT, CFG.TYPE_BASE),
+      discMax: pick(maxT, CFG.TYPE_PROMO) ?? pick(maxT, CFG.TYPE_BASE),
     })
   }
   // 수집된 값이 하나도 없는 행은 대시보드에서 제외
-  return out.filter(
-    (r) => [r.baseMin, r.promoMin, r.baseMax, r.promoMax].some((v) => v != null)
-  )
+  return out.filter((r) => [r.discMin, r.discMax].some((v) => v != null))
 }
 
 function withRowspan(rows) {
@@ -106,10 +103,14 @@ function Cell({ v, money, isTier }) {
   )
 }
 
-// 렌탈 표 맨 위에 원문 그대로 고정할 자사(아정당) 행
+// 렌탈 표 맨 위 고정 (원문 그대로, B규칙=프로모션 우선 적용)
 const PINNED_RENTAL = [
-  { carrier: '아정당렌탈', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', baseMin: '15,000', promoMin: '25개월~ 6,000원', tierMax: '120만원', baseMax: '20,000', promoMax: '' },
-  { carrier: '아정당렌탈', issuer: '우리', card_name: '아정당 우리카드', fee: '20,000', tierMin: '30만원', baseMin: '10,000', promoMin: '', tierMax: '150만원', baseMax: '15,000', promoMax: '' },
+  { carrier: '아정당렌탈', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', discMin: '25개월~ 6,000원', tierMax: '120만원', discMax: '20,000' },
+  { carrier: '아정당렌탈', issuer: '우리', card_name: '아정당 우리카드', fee: '20,000', tierMin: '30만원', discMin: '10,000', tierMax: '150만원', discMax: '15,000' },
+]
+// 통신 표 맨 위 고정 (값 미정 → 공란. 값 주면 채움)
+const PINNED_TEL = [
+  { carrier: '아정당', issuer: '하나', card_name: '아정당 하나카드', fee: '', tierMin: '', discMin: '', tierMax: '', discMax: '' },
 ]
 
 function CompareTable({ rows, firstColLabel, pinned }) {
@@ -128,11 +129,9 @@ function CompareTable({ rows, firstColLabel, pinned }) {
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap text-left">카드명</th>
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap">연회비</th>
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap">전월실적(최소)</th>
-            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-emerald-700/80">기존회원<br/>(기본할인)</th>
-            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-emerald-700/80">신규회원<br/>(프로모션)</th>
+            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-emerald-700/80">청구할인<br/>(최소실적)</th>
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap">전월실적(최대)</th>
-            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-sky-800/80">기존회원<br/>(최대)</th>
-            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-sky-800/80">신규회원<br/>(최대)</th>
+            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-sky-800/80">청구할인<br/>(최대실적)</th>
           </tr>
         </thead>
         <tbody>
@@ -147,11 +146,9 @@ function CompareTable({ rows, firstColLabel, pinned }) {
               <td className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap">{r.card_name}</td>
               <td className="border border-slate-200 px-2 py-1 text-left text-[11px] text-slate-700 leading-tight min-w-[140px]">{r.fee}</td>
               <td className="border border-slate-200 px-2 py-1 text-right">{r.tierMin}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right">{r.baseMin}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right whitespace-nowrap">{r.promoMin}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right whitespace-nowrap">{r.discMin}</td>
               <td className="border border-slate-200 px-2 py-1 text-right">{r.tierMax}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right">{r.baseMax}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right">{r.promoMax}</td>
+              <td className="border border-slate-200 px-2 py-1 text-right">{r.discMax}</td>
             </tr>
           ))}
           {data.map((r, i) => (
@@ -168,11 +165,9 @@ function CompareTable({ rows, firstColLabel, pinned }) {
               <td className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap">{r.card_name}</td>
               <td className="border border-slate-200 px-2 py-1 text-left text-[11px] text-slate-600 leading-tight min-w-[140px]">{r.fee || ''}</td>
               <Cell v={r.tierMin} isTier />
-              <Cell v={r.baseMin} money />
-              <Cell v={r.promoMin} money />
+              <Cell v={r.discMin} money />
               <Cell v={r.tierMax} isTier />
-              <Cell v={r.baseMax} money />
-              <Cell v={r.promoMax} money />
+              <Cell v={r.discMax} money />
             </tr>
           ))}
         </tbody>
@@ -249,7 +244,7 @@ export default function App() {
 
       {!loading && !err && (
         <>
-          {tab === '통신' && <CompareTable rows={telRows} firstColLabel="통신사" />}
+          {tab === '통신' && <CompareTable rows={telRows} firstColLabel="통신사" pinned={PINNED_TEL} />}
           {tab === '렌탈' && <CompareTable rows={rentalRows} firstColLabel="가맹점" pinned={PINNED_RENTAL} />}
         </>
       )}
