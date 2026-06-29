@@ -36,6 +36,14 @@ const tier = (v) => {
 // 공백 무시 그룹 키 (표기 미묘하게 달라 쪼개지는 중복 합침)
 const gkey = (r) =>
   [r.carrier, r.issuer, r.card_name].map((s) => String(s ?? '').replace(/\s+/g, '')).join('||')
+// issuer 비었을 때만 카드명으로 보정. LOCA/로카→롯데, IBK→기업, 그 외 공란 유지
+const fillIssuer = (issuer, cardName) => {
+  if (issuer != null && String(issuer).trim() !== '') return issuer
+  const n = String(cardName || '')
+  if (/LOCA|로카/i.test(n)) return '롯데'
+  if (/IBK/i.test(n)) return '기업'
+  return ''
+}
 
 /* long → wide 피벗 (25개월후/혜택기간 제외) */
 function pivot(rows) {
@@ -65,7 +73,7 @@ function pivot(rows) {
 
     out.push({
       carrier: base.carrier,
-      issuer: base.issuer,
+      issuer: fillIssuer(base.issuer, base.card_name),
       card_name: base.card_name,
       fee: g.map((r) => r.fee).find((v) => v != null && v !== '') ?? '', // 원문 그대로
       tierMin: minT,
@@ -105,12 +113,12 @@ function Cell({ v, money, isTier }) {
 
 // 렌탈 표 맨 위 고정 (원문 그대로, B규칙=프로모션 우선 적용)
 const PINNED_RENTAL = [
-  { carrier: '아정당렌탈', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', discMin: '25개월~ 6,000원', tierMax: '120만원', discMax: '20,000' },
+  { carrier: '아정당렌탈', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', discMin: '15,000', tierMax: '120만원', discMax: '20,000' },
   { carrier: '아정당렌탈', issuer: '우리', card_name: '아정당 우리카드', fee: '20,000', tierMin: '30만원', discMin: '10,000', tierMax: '150만원', discMax: '15,000' },
 ]
 // 통신 표 맨 위 고정 (값 미정 → 공란. 값 주면 채움)
 const PINNED_TEL = [
-  { carrier: '아정당', issuer: '하나', card_name: '아정당 하나카드', fee: '', tierMin: '', discMin: '', tierMax: '', discMax: '' },
+  { carrier: '아정당', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', discMin: '15,000', tierMax: '120만원', discMax: '20,000' },
 ]
 
 function CompareTable({ rows, firstColLabel, pinned }) {
@@ -129,9 +137,9 @@ function CompareTable({ rows, firstColLabel, pinned }) {
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap text-left">카드명</th>
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap">연회비</th>
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap">전월실적(최소)</th>
-            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-emerald-700/80">청구할인<br/>(최소실적)</th>
+            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-emerald-700/80">청구할인<br/>(최소·프로모션포함)</th>
             <th className="border border-slate-600 px-2 py-2 whitespace-nowrap">전월실적(최대)</th>
-            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-sky-800/80">청구할인<br/>(최대실적)</th>
+            <th className="border border-slate-600 px-2 py-2 whitespace-nowrap bg-sky-800/80">청구할인<br/>(최대·프로모션포함)</th>
           </tr>
         </thead>
         <tbody>
