@@ -71,6 +71,19 @@ function pivot(rows) {
       return null
     }
 
+    const hasTiers = tiers.length > 0
+    let discMin, discMax
+    if (hasTiers) {
+      // 프로모션 있으면 프로모션, 없으면 기본 (합산 아님)
+      discMin = pick(minT, CFG.TYPE_PROMO) ?? pick(minT, CFG.TYPE_BASE)
+      discMax = pick(maxT, CFG.TYPE_PROMO) ?? pick(maxT, CFG.TYPE_BASE)
+    } else {
+      // 실적구간 없는 카드(SKT 범위형 등): 전체 할인값의 최소/최대
+      const ds = g.map((r) => num(r.discount)).filter((v) => v != null)
+      discMin = ds.length ? Math.min(...ds) : null
+      discMax = ds.length ? Math.max(...ds) : null
+    }
+
     out.push({
       carrier: base.carrier,
       issuer: fillIssuer(base.issuer, base.card_name),
@@ -78,9 +91,8 @@ function pivot(rows) {
       fee: g.map((r) => r.fee).find((v) => v != null && v !== '') ?? '', // 원문 그대로
       tierMin: minT,
       tierMax: maxT,
-      // 프로모션 있으면 프로모션, 없으면 기본 (합산 아님)
-      discMin: pick(minT, CFG.TYPE_PROMO) ?? pick(minT, CFG.TYPE_BASE),
-      discMax: pick(maxT, CFG.TYPE_PROMO) ?? pick(maxT, CFG.TYPE_BASE),
+      discMin,
+      discMax,
     })
   }
   // 수집된 값이 하나도 없는 행은 대시보드에서 제외
