@@ -445,6 +445,7 @@ def clean_amount_umobile(s):
 _SKT_DTYPE_OK = ("통신비 할인", "청구 할인")  # 캐시백/결제대금/아이폰 제외
 def parse_skt(html):
     soup=BeautifulSoup(html,"lxml"); out=[]; in_fee=False
+    soup=BeautifulSoup(html,"lxml"); out=[]; in_fee=False
     for el in soup.find_all(["em","div"]):
         cls=el.get("class") or []
         if el.name=="em" and "topTitle" in cls:
