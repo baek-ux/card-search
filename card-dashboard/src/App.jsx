@@ -219,19 +219,35 @@ export default function App() {
     [rows]
   )
 
+  // 현재 탭의 카드사(issuer) 목록 + 선택된 필터
+  const [issuerFilter, setIssuerFilter] = useState('전체')
+  const activeRows = tab === '통신' ? telRows : rentalRows
+  const issuerOptions = useMemo(() => {
+    const set = new Set(
+      activeRows.map((r) => String(r.issuer || '').trim()).filter((v) => v !== '')
+    )
+    return ['전체', ...Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'))]
+  }, [activeRows])
+  // 탭 바뀌면 필터 초기화 (통신 카드사 ≠ 렌탈 카드사라 잔존값이 빈 표 유발)
+  useEffect(() => setIssuerFilter('전체'), [tab])
+  const filteredRows = useMemo(
+    () =>
+      issuerFilter === '전체'
+        ? activeRows
+        : activeRows.filter((r) => String(r.issuer || '').trim() === issuerFilter),
+    [activeRows, issuerFilter]
+  )
+
   return (
     <div className="min-h-screen p-4 md:p-8 max-w-[1400px] mx-auto">
       <header className="mb-4">
         <h1 className="text-xl font-bold text-slate-800">통신·렌탈 할인카드 비교표</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          {latestDate ? `기준일: ${latestDate} · ` : ''}출처 card_benefit2 · 자동수집된 카드만 표시
-          <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[11px] align-middle">
-            노란색 = 아정당 자사카드
-          </span>
-        </p>
+        {latestDate && (
+          <p className="text-xs text-slate-500 mt-1">기준일: {latestDate}</p>
+        )}
       </header>
 
-      <div className="flex gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-3">
         {['통신', '렌탈'].map((t) => (
           <button
             key={t}
@@ -243,6 +259,20 @@ export default function App() {
             {t} ({t === '통신' ? telRows.length : rentalRows.length})
           </button>
         ))}
+        <div className="ml-auto flex items-center gap-2">
+          <label className="text-xs text-slate-500">카드사</label>
+          <select
+            value={issuerFilter}
+            onChange={(e) => setIssuerFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-md text-sm border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          >
+            {issuerOptions.map((o) => (
+              <option key={o} value={o}>
+                {o === '전체' ? '전체 카드사' : o}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {loading && <div className="text-slate-400 py-12 text-center">불러오는 중…</div>}
@@ -256,10 +286,7 @@ export default function App() {
       )}
 
       {!loading && !err && (
-        <>
-          {tab === '통신' && <CompareTable rows={telRows} firstColLabel="통신사" />}
-          {tab === '렌탈' && <CompareTable rows={rentalRows} firstColLabel="가맹점" />}
-        </>
+        <CompareTable rows={filteredRows} firstColLabel={tab === '통신' ? '통신사' : '가맹점'} />
       )}
     </div>
   )
