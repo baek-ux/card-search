@@ -14,6 +14,7 @@ const CFG = {
   INSTALL_AS_BASE: true,
   TEL_CATS: ['통신', '통신-할부형'],
   RENTAL_CATS: ['렌탈'],
+  SELF_KEYWORD: '아정당', // 자사카드 하이라이트 판별 키워드(carrier/card_name)
 }
 
 // 콤마·"원"·문자 섞인 값에서 숫자만 추출. 못 뽑으면 null
@@ -44,6 +45,9 @@ const fillIssuer = (issuer, cardName) => {
   if (/IBK/i.test(n)) return '기업'
   return ''
 }
+// 자사(아정당) 행 판별 — carrier 또는 card_name에 키워드 포함
+const isSelf = (r) =>
+  [r.carrier, r.card_name].some((s) => String(s ?? '').includes(CFG.SELF_KEYWORD))
 
 /* long → wide 피벗 (25개월후/혜택기간 제외) */
 function pivot(rows) {
@@ -93,6 +97,7 @@ function pivot(rows) {
       tierMax: maxT,
       discMin,
       discMax,
+      _self: isSelf(base),
     })
   }
   // 수집된 값이 하나도 없는 행은 대시보드에서 제외
@@ -100,8 +105,10 @@ function pivot(rows) {
 }
 
 function withRowspan(rows) {
+  // 자사(아정당) 먼저 → 그다음 통신사/카드사順. 자사가 표 상단에 모임.
   const sorted = [...rows].sort(
     (a, b) =>
+      (b._self ? 1 : 0) - (a._self ? 1 : 0) ||
       a.carrier.localeCompare(b.carrier, 'ko') ||
       a.issuer.localeCompare(b.issuer, 'ko') ||
       a.card_name.localeCompare(b.card_name, 'ko')
@@ -123,20 +130,9 @@ function Cell({ v, money, isTier }) {
   )
 }
 
-// 렌탈 표 맨 위 고정 (원문 그대로, B규칙=프로모션 우선 적용)
-const PINNED_RENTAL = [
-  { carrier: '아정당렌탈', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', discMin: '15,000', tierMax: '120만원', discMax: '20,000' },
-  { carrier: '아정당렌탈', issuer: '우리', card_name: '아정당 우리카드', fee: '20,000', tierMin: '30만원', discMin: '10,000', tierMax: '150만원', discMax: '15,000' },
-]
-// 통신 표 맨 위 고정 (값 미정 → 공란. 값 주면 채움)
-const PINNED_TEL = [
-  { carrier: '아정당', issuer: '하나', card_name: '아정당 하나카드', fee: '29,000', tierMin: '30만원', discMin: '15,000', tierMax: '120만원', discMax: '20,000' },
-]
-
-function CompareTable({ rows, firstColLabel, pinned }) {
+function CompareTable({ rows, firstColLabel }) {
   const data = withRowspan(rows)
-  const hasPinned = pinned && pinned.length > 0
-  if (!data.length && !hasPinned)
+  if (!data.length)
     return <div className="text-slate-400 text-sm py-8 text-center">표시할 카드가 없습니다.</div>
 
   return (
@@ -155,28 +151,22 @@ function CompareTable({ rows, firstColLabel, pinned }) {
           </tr>
         </thead>
         <tbody>
-          {hasPinned && pinned.map((r, i) => (
-            <tr key={'pin' + i} className="bg-amber-100/70 font-medium">
-              {i === 0 && (
-                <td rowSpan={pinned.length} className="border border-slate-200 px-2 py-1 text-center font-semibold bg-amber-200/60 align-middle">
-                  {r.carrier}
-                </td>
-              )}
-              <td className="border border-slate-200 px-2 py-1 text-center whitespace-nowrap">{r.issuer}</td>
-              <td className="border border-slate-200 px-2 py-1 text-left whitespace-nowrap">{r.card_name}</td>
-              <td className="border border-slate-200 px-2 py-1 text-left text-[11px] text-slate-700 leading-tight min-w-[140px]">{r.fee}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right">{r.tierMin}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right whitespace-nowrap">{r.discMin}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right">{r.tierMax}</td>
-              <td className="border border-slate-200 px-2 py-1 text-right">{r.discMax}</td>
-            </tr>
-          ))}
           {data.map((r, i) => (
-            <tr key={i} className="even:bg-slate-50/60 hover:bg-amber-50">
+            <tr
+              key={i}
+              className={
+                r._self
+                  ? 'bg-amber-100/70 font-medium hover:bg-amber-200/60'
+                  : 'even:bg-slate-50/60 hover:bg-amber-50'
+              }
+            >
               {r._carrierFirst && (
                 <td
                   rowSpan={r._carrierSpan}
-                  className="border border-slate-200 px-2 py-1 text-center font-semibold bg-slate-100 align-middle"
+                  className={
+                    'border border-slate-200 px-2 py-1 text-center font-semibold align-middle ' +
+                    (r._self ? 'bg-amber-200/60' : 'bg-slate-100')
+                  }
                 >
                   {r.carrier}
                 </td>
@@ -235,6 +225,9 @@ export default function App() {
         <h1 className="text-xl font-bold text-slate-800">통신·렌탈 할인카드 비교표</h1>
         <p className="text-xs text-slate-500 mt-1">
           {latestDate ? `기준일: ${latestDate} · ` : ''}출처 card_benefit2 · 자동수집된 카드만 표시
+          <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[11px] align-middle">
+            노란색 = 아정당 자사카드
+          </span>
         </p>
       </header>
 
@@ -264,8 +257,8 @@ export default function App() {
 
       {!loading && !err && (
         <>
-          {tab === '통신' && <CompareTable rows={telRows} firstColLabel="통신사" pinned={PINNED_TEL} />}
-          {tab === '렌탈' && <CompareTable rows={rentalRows} firstColLabel="가맹점" pinned={PINNED_RENTAL} />}
+          {tab === '통신' && <CompareTable rows={telRows} firstColLabel="통신사" />}
+          {tab === '렌탈' && <CompareTable rows={rentalRows} firstColLabel="가맹점" />}
         </>
       )}
     </div>
